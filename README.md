@@ -4,18 +4,21 @@ Herramienta de escaneo híbrido (activo y pasivo) para descubrir dispositivos qu
 
 ## 1. 📋 Descripción
 
-Este script permite identificar dispositivos IoT, impresoras y otros equipos que anuncian servicios mediante Zeroconf/Bonjour. Combina la escucha pasiva de tráfico mDNS con escaneos activos de red para proporcionar una visibilidad completa de los dispositivos conectados.
+Este script identifica dispositivos IoT, impresoras y otros equipos que anuncian servicios mediante Zeroconf/Bonjour. Combina la escucha pasiva de tráfico mDNS con escaneos activos de red para proporcionar una visibilidad completa de los dispositivos conectados.
 
-La interfaz está completamente traducida al **español** y ofrece una visualización en tiempo real.
+### Características Principales:
+- **Detección Avanzada de Hostnames**: Utiliza scripts de `nmap` (`dns-service-discovery`) y análisis verboso de `tcpdump` para obtener nombres reales de dispositivos (ej: "Apple TV", "Chromecast").
+- **Interfaz en Tiempo Real**: Tabla dinámica traducida al español.
+- **Modo Híbrido**: Combina descubrimiento pasivo por tráfico y escaneo activo de subred.
 
 ## 2. 🛠️ Requisitos
 
-Para que el script funcione correctamente, asegúrate de tener instaladas las siguientes dependencias:
+Asegúrate de tener instaladas las siguientes dependencias:
 
 ### Sistema
 - Linux (Debian/Ubuntu recomendado)
 - `tcpdump`
-- `nmap`
+- `nmap` (con soporte para scripts NSE)
 
 ### Python
 - `netifaces` (Instalar con `pip install netifaces`)

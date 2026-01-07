@@ -111,6 +111,20 @@ def get_mac(ip):
     return None
 
 
+def get_hostname(ip):
+    try:
+        # Intento 1: Resolución estándar (funciona si nss-mdns está configurado)
+        return socket.gethostbyaddr(ip)[0]
+    except:
+        try:
+            # Intento 2: Usar avahi-resolve si está disponible
+            out = subprocess.check_output(["avahi-resolve", "-a", ip], text=True, stderr=subprocess.DEVNULL)
+            return out.split()[-1]
+        except:
+            pass
+    return None
+
+
 def update_table():
     os.system("clear")
 
@@ -121,41 +135,40 @@ def update_table():
 
     ordered = sorted(hosts, key=lambda h: list(map(int, h["ip"].split("."))))
 
-    print("+----------------+-------------------+----------------------+---------------------+-----------+")
-    print("| IP             | MAC               | Fabricante           | Última vez visto    | Método    |")
-    print("+----------------+-------------------+----------------------+---------------------+-----------+")
+    print("+----------------+-------------------+----------------------+----------------------+-----------+")
+    print("| IP             | MAC               | Fabricante           | Nombre de Host       | Método    |")
+    print("+----------------+-------------------+----------------------+----------------------+-----------+")
 
     for h in ordered:
         method_color = GREEN if h["method"] == "Activo" else YELLOW
         vendor = h["vendor"][:20]
-        print(f"| {h['ip']:<14} | {h['mac']:<17} | {vendor:<20} | {h['last_seen']:<19} | "
+        hostname = h["hostname"][:20]
+        print(f"| {h['ip']:<14} | {h['mac']:<17} | {vendor:<20} | {hostname:<20} | "
               f"{method_color}{h['method']:<9}{RESET} |")
 
-    print("+----------------+-------------------+----------------------+---------------------+-----------+")
+    print("+----------------+-------------------+----------------------+----------------------+-----------+")
     print("Presiona 'q' para salir\n")
 
 
 
-def add_host(ip, mac, method, vendor_override=None):
+def add_host(ip, mac, method, vendor_override=None, hostname=None):
     with lock:
+        # Si no tenemos hostname, intentamos resolverlo
+        if not hostname or hostname in ["(desconocido)", "Desconocido"]:
+            hostname = get_hostname(ip)
+
         for h in hosts:
             if h["ip"] == ip:
-
-                h["last_seen"] = datetime.now().strftime("%H:%M:%S")
-
                 if method == "Activo":
                     h["method"] = "Activo"
-
                 if mac:
                     h["mac"] = mac
-
-                curr = h["vendor"]
-
+                
                 if vendor_override and vendor_override not in ["Desconocido", "(Desconocido)"]:
-                    if curr in ["Desconocido", "(Desconocido)"]:
-                        h["vendor"] = vendor_override
-                    elif "." in curr:
-                        h["vendor"] = vendor_override
+                    h["vendor"] = vendor_override
+                
+                if hostname and hostname not in ["(desconocido)", "Desconocido"]:
+                    h["hostname"] = hostname
 
                 update_table()
                 return
@@ -164,39 +177,43 @@ def add_host(ip, mac, method, vendor_override=None):
             "ip": ip,
             "mac": mac if mac else "(desconocido)",
             "vendor": vendor_override if vendor_override else "(Desconocido)",
-            "method": method,
-            "last_seen": datetime.now().strftime("%H:%M:%S")
+            "hostname": hostname if hostname else "(desconocido)",
+            "method": method
         })
         update_table()
 
 
 def passive_sniffer(interface):
-    cmd = ["tcpdump", "-l", "-n", "-i", interface, "udp port 5353"] # TCPDUMP requiere root para funcionar correctamente
+    # Añadimos -v para ver los registros mDNS (PTR, SRV, A, etc.)
+    cmd = ["tcpdump", "-l", "-n", "-v", "-i", interface, "udp port 5353"]
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
                             stderr=subprocess.DEVNULL, text=True)
 
     while not stop_event.is_set():
-        # Usamos select para no bloquearnos si no hay salida
         r, _, _ = select.select([proc.stdout], [], [], 0.5)
         if r:
             line = proc.stdout.readline()
             if not line:
                 break
-            m = re.search(r"IP (\d+\.\d+\.\d+\.\d+)", line)
-            if not m:
+            
+            # Buscar IP de origen
+            m_ip = re.search(r"IP (\d+\.\d+\.\d+\.\d+)", line)
+            if not m_ip:
                 continue
+            ip = m_ip.group(1)
+            
+            # Buscar cualquier nombre que termine en .local
+            # Ej: MacBook-Pro.local. o _googlecast._tcp.local.
+            hostname = None
+            m_local = re.search(r"([\w\d\-\.]+?\.local)\.?", line, re.I)
+            if m_local:
+                name = m_local.group(1)
+                # Ignorar nombres de servicio comunes para quedarnos con el del dispositivo
+                if not name.startswith("_") and ".local" in name:
+                    hostname = name
 
-            ip = m.group(1)
             mac = get_mac(ip)
-
-            vendor_override = None
-            mname = re.search(r'PTR\s+"?([^"\s{},]+)', line)
-            if mname:
-                name = mname.group(1)
-                if not name.startswith(("(", "{")):
-                    vendor_override = name.capitalize()
-
-            add_host(ip, mac, "Pasivo", vendor_override)
+            add_host(ip, mac, "Pasivo", hostname=hostname)
     
     proc.terminate()
 
@@ -206,20 +223,41 @@ def scan_ip(ip):
         return
 
     try:
+        # Usamos el script especializado dns-service-discovery de nmap
         result = subprocess.run(
-            ["nmap", "-n", "-Pn", "-sU", "-T4", "-p", PORT, ip],
+            ["nmap", "-Pn", "-sV", "-p", PORT, "--script", "dns-service-discovery", ip],
             capture_output=True,
             text=True,
-            timeout=10
+            timeout=20
         )
     except:
         return
 
-    if "zeroconf" not in result.stdout.lower():
+    # Si no hay indicios de mDNS, ignoramos
+    if "5353" not in result.stdout:
         return
 
     mac = None
     vendor_from_nmap = None
+    hostname = None
+
+    # 1. Intentar sacar el nombre del script de nmap (suele ser el más real)
+    # nmap suele ponerlo en líneas como: "|   Device Name: Mi-Dispositivo"
+    m_dev_name = re.search(r"Device Name: (.*)", result.stdout, re.I)
+    if m_dev_name:
+        hostname = m_dev_name.group(1).strip()
+    
+    # 2. Respaldo: Nombre del reporte de nmap
+    if not hostname:
+        m_host = re.search(r"Nmap scan report for (.*?) \(", result.stdout)
+        if m_host:
+            hostname = m_host.group(1).strip()
+
+    # 3. Respaldo: Buscar .local en el output completo de nmap
+    if not hostname:
+        m_local = re.search(r"([\w\d\-\.]+?\.local)", result.stdout, re.I)
+        if m_local:
+            hostname = m_local.group(1).strip()
 
     for line in result.stdout.splitlines():
         if "MAC Address" in line:
@@ -231,7 +269,7 @@ def scan_ip(ip):
             if m_vendor:
                 vendor_from_nmap = m_vendor.group(1).strip()
 
-    add_host(ip, mac, "Activo", vendor_override=vendor_from_nmap)
+    add_host(ip, mac, "Activo", vendor_override=vendor_from_nmap, hostname=hostname)
 
 
 def active_scanner_loop():
