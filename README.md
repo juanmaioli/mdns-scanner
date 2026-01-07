@@ -6,6 +6,8 @@ Herramienta de escaneo híbrido (activo y pasivo) para descubrir dispositivos qu
 
 Este script permite identificar dispositivos IoT, impresoras y otros equipos que anuncian servicios mediante Zeroconf/Bonjour. Combina la escucha pasiva de tráfico mDNS con escaneos activos de red para proporcionar una visibilidad completa de los dispositivos conectados.
 
+La interfaz está completamente traducida al **español** y ofrece una visualización en tiempo real.
+
 ## 2. 🛠️ Requisitos
 
 Para que el script funcione correctamente, asegúrate de tener instaladas las siguientes dependencias:
@@ -26,4 +28,5 @@ El script requiere privilegios de root para realizar capturas de red y escaneos 
 sudo python3 mdns-scanner.py [interfaz]
 ```
 
-Si no se especifica una interfaz, se utilizará `wlp0s20f3` por defecto.
+- Si no se especifica una interfaz, se utilizará `wlp0s20f3` por defecto.
+- Presiona **'q'** en cualquier momento para salir de forma segura.

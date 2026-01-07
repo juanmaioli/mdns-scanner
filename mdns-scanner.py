@@ -11,6 +11,11 @@ import netifaces
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 import shutil
+import select
+import tty
+import termios
+
+stop_event = threading.Event()
 
 
 
@@ -20,22 +25,22 @@ try:
     addrs = netifaces.ifaddresses(INTERFACE)
     ipv4 = addrs.get(netifaces.AF_INET)
     if not ipv4:
-        print(f"[!] Interface {INTERFACE} has no IPv4 address")
+        print(f"[!] La interfaz {INTERFACE} no tiene dirección IPv4")
         sys.exit(1)
     ip = ipv4[0]['addr']
     BASE_IP = '.'.join(ip.split('.')[:3]) + '.'
 except Exception as e:
-    print(f"[!] Could not obtain IP from interface '{INTERFACE}': {e}")
+    print(f"[!] No se pudo obtener la IP de la interfaz '{INTERFACE}': {e}")
     sys.exit(1)
 
-print(f"[*] Using interface {INTERFACE} (base IP: {BASE_IP})")
+print(f"[*] Usando interfaz {INTERFACE} (IP base: {BASE_IP})")
 
 
 def require_root():
     if os.geteuid() != 0:
-        print("[ERROR] This script must be run as root.")
-        print("        Root privileges are required to run tcpdump and raw packet operations.")
-        print("\n        Try again using:\n            sudo python3 scanner.py <interface>\n")
+        print("[ERROR] Este script debe ejecutarse como root.")
+        print("        Se requieren privilegios de root para ejecutar tcpdump y operaciones de red.")
+        print("\n        Inténtalo de nuevo usando:\n            sudo python3 mdns-scanner.py <interfaz>\n")
         sys.exit(1)
 
 
@@ -49,12 +54,12 @@ HAS_TCPDUMP = shutil.which("tcpdump") is not None
 if HAS_NMAP:
     pass
 else:
-    print("[WARNING] nmap NOT found. Active scanner disabled.")
+    print("[ADVERTENCIA] nmap NO encontrado. Escáner activo desactivado.")
 
 if HAS_TCPDUMP:
     pass
 else:
-    print("[WARNING] tcpdump NOT found. Passive scanner disabled.")
+    print("[ADVERTENCIA] tcpdump NO encontrado. Escáner pasivo desactivado.")
 
 
 
@@ -110,22 +115,24 @@ def update_table():
     os.system("clear")
 
     if not hosts:
-        print("No hosts discovered yet...\n")
+        print("No se han descubierto hosts todavía...")
+        print("\nPresiona 'q' para salir\n")
         return
 
     ordered = sorted(hosts, key=lambda h: list(map(int, h["ip"].split("."))))
 
     print("+----------------+-------------------+----------------------+---------------------+-----------+")
-    print("| IP             | MAC               | Vendor               | Last Seen           | Method    |")
+    print("| IP             | MAC               | Fabricante           | Última vez visto    | Método    |")
     print("+----------------+-------------------+----------------------+---------------------+-----------+")
 
     for h in ordered:
-        method_color = GREEN if h["method"] == "Active" else YELLOW
+        method_color = GREEN if h["method"] == "Activo" else YELLOW
         vendor = h["vendor"][:20]
         print(f"| {h['ip']:<14} | {h['mac']:<17} | {vendor:<20} | {h['last_seen']:<19} | "
               f"{method_color}{h['method']:<9}{RESET} |")
 
-    print("+----------------+-------------------+----------------------+---------------------+-----------+\n")
+    print("+----------------+-------------------+----------------------+---------------------+-----------+")
+    print("Presiona 'q' para salir\n")
 
 
 
@@ -136,16 +143,16 @@ def add_host(ip, mac, method, vendor_override=None):
 
                 h["last_seen"] = datetime.now().strftime("%H:%M:%S")
 
-                if method == "Active":
-                    h["method"] = "Active"
+                if method == "Activo":
+                    h["method"] = "Activo"
 
                 if mac:
                     h["mac"] = mac
 
                 curr = h["vendor"]
 
-                if vendor_override and vendor_override not in ["Unknown", "(Unknown)"]:
-                    if curr in ["Unknown", "(Unknown)"]:
+                if vendor_override and vendor_override not in ["Desconocido", "(Desconocido)"]:
+                    if curr in ["Desconocido", "(Desconocido)"]:
                         h["vendor"] = vendor_override
                     elif "." in curr:
                         h["vendor"] = vendor_override
@@ -155,8 +162,8 @@ def add_host(ip, mac, method, vendor_override=None):
 
         hosts.append({
             "ip": ip,
-            "mac": mac if mac else "(unknown)",
-            "vendor": vendor_override if vendor_override else "(Unknown)",
+            "mac": mac if mac else "(desconocido)",
+            "vendor": vendor_override if vendor_override else "(Desconocido)",
             "method": method,
             "last_seen": datetime.now().strftime("%H:%M:%S")
         })
@@ -164,32 +171,38 @@ def add_host(ip, mac, method, vendor_override=None):
 
 
 def passive_sniffer(interface):
-    print("[*] Passive mDNS listener started...")
-
-    cmd = ["tcpdump", "-l", "-n", "-i", interface, "udp port 5353"] # TCPDUMP requires root to work properly
+    cmd = ["tcpdump", "-l", "-n", "-i", interface, "udp port 5353"] # TCPDUMP requiere root para funcionar correctamente
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
                             stderr=subprocess.DEVNULL, text=True)
 
-    for line in proc.stdout:
-        m = re.search(r"IP (\d+\.\d+\.\d+\.\d+)", line)
-        if not m:
-            continue
+    while not stop_event.is_set():
+        # Usamos select para no bloquearnos si no hay salida
+        r, _, _ = select.select([proc.stdout], [], [], 0.5)
+        if r:
+            line = proc.stdout.readline()
+            if not line:
+                break
+            m = re.search(r"IP (\d+\.\d+\.\d+\.\d+)", line)
+            if not m:
+                continue
 
-        ip = m.group(1)
-        mac = get_mac(ip)
+            ip = m.group(1)
+            mac = get_mac(ip)
 
-        vendor_override = None
-        mname = re.search(r'PTR\s+"?([^"\s{},]+)', line)
-        if mname:
-            name = mname.group(1)
-            if not name.startswith(("(", "{")):
-                vendor_override = name.capitalize()
+            vendor_override = None
+            mname = re.search(r'PTR\s+"?([^"\s{},]+)', line)
+            if mname:
+                name = mname.group(1)
+                if not name.startswith(("(", "{")):
+                    vendor_override = name.capitalize()
 
-        add_host(ip, mac, "Passive", vendor_override)
+            add_host(ip, mac, "Pasivo", vendor_override)
+    
+    proc.terminate()
 
 
 def scan_ip(ip):
-    if not HAS_NMAP:
+    if not HAS_NMAP or stop_event.is_set():
         return
 
     try:
@@ -218,42 +231,61 @@ def scan_ip(ip):
             if m_vendor:
                 vendor_from_nmap = m_vendor.group(1).strip()
 
-    add_host(ip, mac, "Active", vendor_override=vendor_from_nmap)
+    add_host(ip, mac, "Activo", vendor_override=vendor_from_nmap)
 
 
 def active_scanner_loop():
     if not HAS_NMAP:
-        print("[!] Active scanner disabled (nmap missing).")
         return
 
     ips = [f"{BASE_IP}{i}" for i in range(START, END + 1)]
-    while True:
+    while not stop_event.is_set():
         with ThreadPoolExecutor(max_workers=MAX_THREADS) as executor:
             for ip in ips:
+                if stop_event.is_set():
+                    break
                 executor.submit(scan_ip, ip)
-        time.sleep(ACTIVE_INTERVAL)
+        
+        # Espera interrumpible
+        for _ in range(ACTIVE_INTERVAL * 10):
+            if stop_event.is_set():
+                break
+            time.sleep(0.1)
 
+
+def listen_for_quit():
+    fd = sys.stdin.fileno()
+    old_settings = termios.tcgetattr(fd)
+    try:
+        tty.setcbreak(fd)
+        while not stop_event.is_set():
+            if select.select([sys.stdin], [], [], 0.1)[0]:
+                if sys.stdin.read(1).lower() == 'q':
+                    stop_event.set()
+                    break
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
 
 
 if __name__ == "__main__":
     require_root()
     update_table()
 
-    t = threading.Thread(target=passive_sniffer, args=(INTERFACE,), daemon=True)
-    t.start()
+    threading.Thread(target=passive_sniffer, args=(INTERFACE,), daemon=True).start()
+    threading.Thread(target=listen_for_quit, daemon=True).start()
 
 
     if HAS_NMAP:
         try:
             active_scanner_loop()
         except KeyboardInterrupt:
-            print("\n[!] Ctrl+C detected. Exiting...")
-            sys.exit(0)
+            pass
     else:
-        print("[INFO] Active scanner disabled (nmap missing).")
         try:
-            while True:
-                time.sleep(1)
+            while not stop_event.is_set():
+                time.sleep(0.1)
         except KeyboardInterrupt:
-            print("\n[!] Ctrl+C detected. Exiting...")
-            sys.exit(0)
+            pass
+    
+    print("\n[!] Saliendo...")
+    sys.exit(0)
