@@ -135,18 +135,18 @@ def update_table():
 
     ordered = sorted(hosts, key=lambda h: list(map(int, h["ip"].split("."))))
 
-    print("+----------------+-------------------+----------------------+----------------------+-----------+")
-    print("| IP             | MAC               | Fabricante           | Nombre de Host       | Método    |")
-    print("+----------------+-------------------+----------------------+----------------------+-----------+")
+    print("+-----+----------------+-------------------+----------------------+----------------------+-----------+")
+    print("| #   | IP             | MAC               | Fabricante           | Nombre de Host       | Método    |")
+    print("+-----+----------------+-------------------+----------------------+----------------------+-----------+")
 
-    for h in ordered:
+    for i, h in enumerate(ordered, 1):
         method_color = GREEN if h["method"] == "Activo" else YELLOW
         vendor = h["vendor"][:20]
         hostname = h["hostname"][:20]
-        print(f"| {h['ip']:<14} | {h['mac']:<17} | {vendor:<20} | {hostname:<20} | "
+        print(f"| {i:<3} | {h['ip']:<14} | {h['mac']:<17} | {vendor:<20} | {hostname:<20} | "
               f"{method_color}{h['method']:<9}{RESET} |")
 
-    print("+----------------+-------------------+----------------------+----------------------+-----------+")
+    print("+-----+----------------+-------------------+----------------------+----------------------+-----------+")
     print("Presiona 'q' para salir\n")
 
 

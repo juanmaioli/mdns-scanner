@@ -8,7 +8,7 @@ Este script identifica dispositivos IoT, impresoras y otros equipos que anuncian
 
 ### Características Principales:
 - **Detección Avanzada de Hostnames**: Utiliza scripts de `nmap` (`dns-service-discovery`) y análisis verboso de `tcpdump` para obtener nombres reales de dispositivos (ej: "Apple TV", "Chromecast").
-- **Interfaz en Tiempo Real**: Tabla dinámica traducida al español.
+- **Interfaz en Tiempo Real**: Tabla dinámica numerada y traducida al español.
 - **Modo Híbrido**: Combina descubrimiento pasivo por tráfico y escaneo activo de subred.
 
 ## 2. 🛠️ Requisitos
