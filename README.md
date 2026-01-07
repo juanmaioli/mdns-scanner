@@ -33,3 +33,9 @@ sudo python3 mdns-scanner.py [interfaz]
 
 - Si no se especifica una interfaz, se utilizará `wlp0s20f3` por defecto.
 - Presiona **'q'** en cualquier momento para salir de forma segura.
+
+## 4. 📜 Créditos
+
+Este proyecto es una versión mejorada y traducida basada en el trabajo original de [ArtesOscuras](https://github.com/ArtesOscuras).
+
+- **Script original:** [ArtesOscuras/Tools/mdns-scanner.py](https://github.com/ArtesOscuras/Tools/blob/main/mdns-scanner.py)
