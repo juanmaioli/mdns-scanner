@@ -31,7 +31,7 @@ El script requiere privilegios de root para realizar capturas de red y escaneos 
 sudo python3 mdns-scanner.py [interfaz]
 ```
 
-- Si no se especifica una interfaz, se utilizará `wlp0s20f3` por defecto.
+- Si no se especifica una interfaz, se utilizará `enp3s0` por defecto.
 - Presiona **'q'** en cualquier momento para salir de forma segura.
 
 ## 4. 📜 Créditos
