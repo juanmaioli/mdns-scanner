@@ -19,6 +19,7 @@ Asegúrate de tener instaladas las siguientes dependencias:
 - Linux (Debian/Ubuntu recomendado)
 - `tcpdump`
 - `nmap` (con soporte para scripts NSE)
+- `avahi-utils` (opcional, para mejor resolución de nombres)
 
 ### Python
 - `netifaces` (Instalar con `pip install netifaces`)

@@ -19,7 +19,7 @@ stop_event = threading.Event()
 
 
 
-INTERFACE = sys.argv[1] if len(sys.argv) > 1 else "wlp0s20f3"
+INTERFACE = sys.argv[1] if len(sys.argv) > 1 else "enp3s0"
 
 try:
     addrs = netifaces.ifaddresses(INTERFACE)
@@ -48,7 +48,7 @@ def require_root():
 
 HAS_NMAP = shutil.which("nmap") is not None
 HAS_TCPDUMP = shutil.which("tcpdump") is not None
-
+HAS_AVAHI = shutil.which("avahi-resolve") is not None
 
 
 if HAS_NMAP:
@@ -61,6 +61,8 @@ if HAS_TCPDUMP:
 else:
     print("[ADVERTENCIA] tcpdump NO encontrado. Escáner pasivo desactivado.")
 
+if not HAS_AVAHI:
+    print("[ADVERTENCIA] avahi-resolve NO encontrado. Resolución de nombres limitada.")
 
 
 START = 1
@@ -116,12 +118,13 @@ def get_hostname(ip):
         # Intento 1: Resolución estándar (funciona si nss-mdns está configurado)
         return socket.gethostbyaddr(ip)[0]
     except:
-        try:
-            # Intento 2: Usar avahi-resolve si está disponible
-            out = subprocess.check_output(["avahi-resolve", "-a", ip], text=True, stderr=subprocess.DEVNULL)
-            return out.split()[-1]
-        except:
-            pass
+        if HAS_AVAHI:
+            try:
+                # Intento 2: Usar avahi-resolve si está disponible
+                out = subprocess.check_output(["avahi-resolve", "-a", ip], text=True, stderr=subprocess.DEVNULL)
+                return out.split()[-1]
+            except:
+                pass
     return None
 
 
